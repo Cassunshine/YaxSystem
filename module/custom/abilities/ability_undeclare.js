@@ -1,0 +1,1 @@
+await scope._templateSystem.entity.update({['system.props.isDeclared'] : false});
