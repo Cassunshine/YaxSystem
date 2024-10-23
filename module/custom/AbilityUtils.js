@@ -166,7 +166,7 @@ export const UndeclareAbility = async (ability) => {
 export const ResolveAbility = async (ability) => {
     await UndeclareAbility(ability);
 
-    let content = "<p>Resolve ability <b>@UUID[" + ability.uuid + "]</b></p>";
+    let content = "<p style=\"text-align: center;\">Resolve ability <b>@UUID[" + ability.uuid + "]</b></p>";
 
     if (ability.parent.inCombat) {
         await ability.update({ ['system.props.cooldown']: ability.system.props.useTime });
