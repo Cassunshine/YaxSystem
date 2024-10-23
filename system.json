@@ -81,6 +81,6 @@
     },
     "url" : "https://github.com/Cassunshine/YaxSystem",
     "manifest" : "https://raw.githubusercontent.com/Cassunshine/YaxSystem/refs/heads/main/system.json",
-    "download" : "https://github.com/Cassunshine/YaxSystem/releases/download/0.1/yax.zip",
-    "version": "4.1.1"
+    "download" : "https://github.com/Cassunshine/YaxSystem/releases/download/0.2/yax.zip",
+    "version": "0.2"
 }
