@@ -42,9 +42,14 @@ import ItemContainer from './sheets/components/ItemContainer.js';
 import ConditionalModifierList from './sheets/components/ConditionalModifierList.js';
 import Logger from './Logger.js';
 import Meter from './sheets/components/Meter.js';
+import HookScriptSetup from './custom/HookScripts.js';
+
 /* -------------------------------------------- */
 /*  Init Hook                                   */
 /* -------------------------------------------- */
+
+await HookScriptSetup();
+
 Hooks.once('init', async function () {
     try {
         // Define custom Document classes
