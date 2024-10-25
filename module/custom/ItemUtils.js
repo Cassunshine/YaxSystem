@@ -1,7 +1,9 @@
 import { ConfigureAbilities } from './AbilityUtils.js';
 
 export default async function SetupItems(){
-    Hooks.on('updateItem', OnItemUpdated);
+    Hooks.on('updateItem', (item, changed, options, userId) => OnItemUpdated(item, userId));
+    Hooks.on('createItem', (item, options, userId) => OnItemUpdated(item, userId));
+    Hooks.on('deleteItem', (item, options, userId) => OnItemUpdated(item, userId));
 
     Hooks.on('init', SetupGlobalFunctions)
 }
@@ -11,14 +13,13 @@ async function SetupGlobalFunctions(){
     game.globalFunctions["unequipItem"] = UnequipItem;
 }
 
-async function OnItemUpdated(targetItem, changed, options, userId){
+async function OnItemUpdated(targetItem, userId){
     const parent = targetItem.parent;
 
     if(parent == null)
         return;
 
     await new Promise((r) => setTimeout(r, 100));
-
     if(parent.sheet != null && parent.sheet.rendered)
         parent.sheet.render();
 }
@@ -89,10 +90,18 @@ async function EquipItem(targetItem){
     } else {
         ui.notifications.error("Another item of the type '" + targetEquipmentType + "' is already equipped");
     }
+
+    await new Promise((r) => setTimeout(r, 100));
+    if(targetItem.parent.sheet != null && targetItem.parent.sheet.rendered)
+        targetItem.parent.sheet.render();
 }
 
 async function UnequipItem(targetItem){
     await targetItem.update({["system.props.active"] : false});
 
     await ConfigureAbilities(targetItem.parent, game.userId);
+
+    await new Promise((r) => setTimeout(r, 100));
+    if(targetItem.parent.sheet != null && targetItem.parent.sheet.rendered)
+        targetItem.parent.sheet.render();
 }

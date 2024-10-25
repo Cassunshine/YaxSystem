@@ -4,11 +4,94 @@ export default async function SetupAbilities() {
 }
 
 export const ConfigureAbilities = async (actor, userId) => {
-    await ConfigureDefaultAbilities(actor, userId);
-    await ConfigureItemAbilities(actor, userId);
+    
+    //If we didn't initializez the change for this configure, we don't configure, because whoever initialized it is the one configuring.
+    if(userId != game.userId)
+        return;
 
+    /**
+     * A map of all abilities that this actor wants.
+     * Configure functions should put ability data here.
+     * At the end of the function, all abilities that exist here that aren't on the actor will be created,
+     * and any configured abilities that aren't in this list will be removed.
+     */
+    const wantedAbilities = {};
+
+    await ConfigureDefaultAbilities(wantedAbilities, actor);
+    await ConfigureItemAbilities(wantedAbilities, actor);
+    
+    await FinalizeConfiguredAbilities(wantedAbilities, actor);
+    
+    //Wait for a moment, then re-render the sheet on this client.
+    await new Promise((r) => setTimeout(r, 100));
     if(actor.sheet != null && actor.sheet.rendered)
         actor.sheet.render();
+}
+
+async function FinalizeConfiguredAbilities(abilities, actor){
+    
+    // Map of all configured abilities currently on the actor.
+    let existingAbilities = {};
+    for (const item of actor.items) {
+        if (item.system.template != abilityTemplateId)
+            continue;
+            
+        if(!item.system.configured)
+            continue;
+
+        existingAbilities[item.system.uniqueId] = item;
+    }
+
+
+    // Delete all configured abilities that aren't needed.
+    {
+        // Map of all abilities (by item ID) that need to be deleted.
+        let deletedAbilities = [];
+        
+        //Iterate existing abilities
+        for(const id in existingAbilities){
+            //If this ability is in the ability list, skip it, since we want to keep it.  
+            if(abilities[id] != null)
+                continue;
+                
+            //Delete the ability if it's not in the ability list.
+            deletedAbilities.push(existingAbilities[id]._id);
+        }
+        
+        await actor.deleteEmbeddedDocuments("Item", deletedAbilities, {broadcast:true});
+    }
+    
+    // Create any missing abilities.
+    {
+        // Array of all abilities (as objects) that need to be created.
+        let createdAbilities = [];
+        
+        for(const abilityId in abilities)
+            createdAbilities.push(abilities[abilityId]);
+            
+        await actor.createEmbeddedDocuments("Item", createdAbilities, {broadcast:true});
+    }
+    
+}
+
+async function GenerateConfiguredAbility(documentId, uniqueId){
+    const document = await fromUuid(documentId);
+    
+    if(document == null)
+        return null;
+        
+    if(uniqueId == null)
+        uniqueId = documentId;
+        
+    var dataObject = document.toObject();
+    delete dataObject._id;
+    
+    //Sets the object to be configured so we can find it later.
+    dataObject.system.configured = true;
+    dataObject.system.unique = true;
+    dataObject.system.uniqueId = uniqueId;
+    
+    return dataObject;
 }
 
 const abilityTemplateId = "DkgYZdbdwKYJ7cxD";
@@ -20,127 +103,47 @@ const defaultAbilityIds = [
     "Item.ZlUg5WuHoXp1SJKJ"
 ];
 
-/**
- * Configures an actor's abilities, ensuring that they have the default abilities an actor should have.
- */
-async function ConfigureDefaultAbilities(actor, userId) {
-    if (userId != game.userId)
-        return;
 
-    await createAbilitiesIfNotPresent(actor, defaultAbilityIds, (ability) => ability.system.props.displayType == `default`);
+/**
+ * Configures default abilities, which all entities should have.
+ */
+async function ConfigureDefaultAbilities(abilityList, actor) {
+    for(const id of defaultAbilityIds){
+        
+        const configured = await GenerateConfiguredAbility(id);
+        if(configured != null)
+            abilityList[id] = configured;
+    }
 }
 
 /**
- * Configures an actor's abilities, giving or taking any item abilities as needed.
+ * Configures abilities that come from items.
  */
-async function ConfigureItemAbilities(actor, userId) {
-    if (userId != game.userId)
-        return;
-
-    let allAbilities = [];
-
+async function ConfigureItemAbilities(abilityList, actor) {
     for (const item of actor.items) {
         const itemAbilities = item.system.props.item_abilities;
-
         if (!itemAbilities)
             continue;
-
+            
+        //Skip items that aren't active.
         if (!item.system.props.active)
             continue;
-
+            
+        //Loop all abilities on the item.
         for (const abilityIndex in itemAbilities) {
-            const itemAbility = itemAbilities[abilityIndex];
+            const abilityEntry = itemAbilities[abilityIndex];
 
-            if (itemAbility.deleted)
+            if (abilityEntry.deleted)
                 continue;
-
-            allAbilities.push(itemAbility.abilityId);
+            
+            //Generate a unique ID using this item's ID and the ID of the ability we're wanting to copy.
+            const abilityId = abilityEntry.abilityId + "_<" + item._id + ">";
+            
+            //Generate a copy and add it to the ability list
+            const generatedAbility = await GenerateConfiguredAbility(abilityEntry.abilityId, abilityId);
+            if(generatedAbility != null)
+                abilityList[abilityId] = generatedAbility;
         }
-    }
-
-    await createAbilitiesIfNotPresent(actor, allAbilities, (ability) => ability.system.props.displayType == `item`);
-
-}
-
-async function createAbilitiesIfNotPresent(actor, abilityUuids, predicate) {
-    // Map of all abilities (by unique ID -> item ID) that are currently on the actor.
-    let existingAbilities = {};
-
-    //Map of all abilities (by item ID) that need to be deleted.
-    //By default, contains all abilities.
-    //Any abilities left in this at the end of the function will be removed.
-    let deletedAbilities = {};
-
-    //Array of all abilities (as objects) that need to be created.
-    let createdAbilities = [];
-
-    //Iterate over all items of the actor, filtering out all abilities.
-    for (const item of actor.items) {
-        if (item.system.template != abilityTemplateId)
-            continue;
-
-        if (!item.system.unique)
-            continue;
-        
-        //Ignore predicate-failing items
-        if (!predicate(item))
-            continue;
-
-        existingAbilities[item.system.uniqueId] = item._id;
-        deletedAbilities[item._id] = true;
-    }
-
-    //Iterate over all the abilities we want to create.
-    for (const abilityUuid of abilityUuids) {
-        const abilityDocument = await fromUuid(abilityUuid);
-
-        if (!abilityDocument)
-            continue;
-
-        //Ignore non-unique abilities.
-        if (!abilityDocument.system.unique) {
-            ui.notifications.error("Item abiltiy must be unique to add to player! ID is : " + itemAbility.abilityId);
-            continue;
-        }
-
-        const uniqueId = abilityDocument.system.uniqueId;
-        const existing = existingAbilities[uniqueId];
-
-        //If ability already exists...
-        if (existing != null) {
-            //If the delete list has this ability, remove it. We want to keep it.
-            if (deletedAbilities[existing])
-                delete deletedAbilities[existing];
-
-            //Do nothing else, as the ability already exists on the entity.
-        } else {
-            const newAbility = abilityDocument.toObject();
-            delete newAbility._id;
-
-            createdAbilities.push(newAbility);
-
-            //Record it as existing on the entity so we don't make multiple.
-            existingAbilities[uniqueId] = 0;
-        }
-    }
-
-
-    //Create new abilities.
-    {
-        if (createdAbilities.length > 0)
-            console.log("Created: ", await actor.createEmbeddedDocuments("Item", createdAbilities, { broadcast: true }));
-    }
-
-
-    //Delete unused abilities.
-    {
-        let itemList = [];
-
-        for (const deleted in deletedAbilities)
-            itemList.push(deleted);
-
-        if (itemList.length > 0)
-            console.log("Removed: ", await actor.deleteEmbeddedDocuments("Item", itemList, { broadcast: true }));
     }
 }
 
@@ -148,6 +151,7 @@ async function SetupGlobalFunctions() {
     game.globalFunctions["declareAbility"] = DeclareAbility;
     game.globalFunctions["undeclareAbility"] = UndeclareAbility;
     game.globalFunctions["resolveAbility"] = ResolveAbility;
+    game.globalFunctions["countAbilities"] = CountAbilities;
 }
 
 export const DeclareAbility = async (ability) => {
@@ -169,7 +173,7 @@ export const ResolveAbility = async (ability) => {
     let content = "<p style=\"text-align: center;\">Resolve ability <b>@UUID[" + ability.uuid + "]</b></p>";
 
     if (ability.parent.inCombat) {
-        await ability.update({ ['system.props.cooldown']: ability.system.props.useTime });
+        await ability.update({ ['system.props.cooldown']: ability.system.props.recoveryTime });
 
         if (ability.system.props.encounterDescription)
             content += "</br>" + ability.system.props.encounterDescription;
@@ -188,4 +192,26 @@ export const ResolveAbility = async (ability) => {
     };
 
     ChatMessage.create(chatData, {});
+}
+
+export const CountAbilities = (actor, predicate) => {
+
+    let count = 0;
+
+    for(const item of actor.items){
+
+        //Skip non-abilities.
+        if (item.system.template != abilityTemplateId)
+            continue;
+        //Skip anything configured.
+        if(item.system.configured)
+            continue;
+        //Skip items not matching the predicate.
+        if(!predicate(item))
+            continue;
+
+        count++;
+    }
+
+    return count;
 }
